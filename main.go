@@ -7,6 +7,7 @@ import (
 	"github.com/abiosoft/ishell"
 	"github.com/abiosoft/readline"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -61,7 +62,7 @@ func main() {
 
 	getCmd.AddCmd(&ishell.Cmd{
 		Name: "resource",
-		Help: "Usage: get resource <type> <input_file> <output_file>",
+		Help: "Usage: get resource <type> <input_file> <output_file> [worker_count=20]",
 		Completer: func(args []string) []string {
 			if len(args) == 0 {
 				return []string{"authenticate"}
@@ -153,9 +154,18 @@ func getUser(c *ishell.Context) {
 func getResource(c *ishell.Context) {
 	start := time.Now()
 
-	if len(c.Args) != 3 {
+	if len(c.Args) != 3 && len(c.Args) != 4 {
 		fmt.Println(c.Cmd.Help)
 		return
+	}
+
+	workerCount := 1
+	if len(c.Args) == 4 {
+		i, err := strconv.ParseUint(c.Args[3], 10, 32)
+		if err != nil {
+			fmt.Println("Error: Invalid worker node count")
+		}
+		workerCount = int(i)
 	}
 
 	g := c.Get("api").(*api.GraphAPI)
@@ -173,14 +183,14 @@ func getResource(c *ishell.Context) {
 
 	switch c.Args[0] {
 	case "authenticate":
-		result = g.GetResourceConcurrent(userIds, 20, g.GetAuthenticationByIdsConcurrent)
+		result = g.GetResourceConcurrent(c, userIds, workerCount, 20, g.GetAuthenticationByIdsConcurrent)
 	default:
 		fmt.Println("Error: Unknown resource")
 		return
 	}
 
 	if dumpFile(result, c.Args[2], true) {
-		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(result), time.Since(start).Seconds())
+		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(userIds), time.Since(start).Seconds())
 	}
 }
 
