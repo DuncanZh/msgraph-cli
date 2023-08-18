@@ -8,7 +8,6 @@ import (
 	"github.com/abiosoft/readline"
 	"os"
 	"strconv"
-	"syscall"
 	"time"
 )
 
@@ -17,7 +16,7 @@ func main() {
 		if err := recover(); err != nil {
 			fmt.Println(err)
 			println("Sending SIGINT to everyone. (just in case?)")
-			syscall.Kill(syscall.Getpid()*(-1), syscall.SIGINT)
+			//syscall.Kill(syscall.Getpid()*(-1), syscall.SIGINT)
 			println("Done")
 		}
 	}()
@@ -159,11 +158,12 @@ func getResource(c *ishell.Context) {
 		return
 	}
 
-	workerCount := 1
+	workerCount := 10
 	if len(c.Args) == 4 {
 		i, err := strconv.ParseUint(c.Args[3], 10, 32)
 		if err != nil {
 			fmt.Println("Error: Invalid worker node count")
+			return
 		}
 		workerCount = int(i)
 	}

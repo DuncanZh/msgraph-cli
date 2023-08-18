@@ -12,7 +12,9 @@ import (
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	"github.com/microsoftgraph/msgraph-sdk-go/models/odataerrors"
+	"strings"
 	"sync"
+	"time"
 )
 
 type GraphAPI struct {
@@ -133,73 +135,107 @@ func (g *GraphAPI) GetAuthenticationByIds(userIds []string) *map[string][]map[st
 	return &result
 }
 
-func (g *GraphAPI) GetAuthenticationByIdsConcurrent(lock *sync.Mutex, input chan []string, result *map[string][]interface{}) {
+func (g *GraphAPI) GetAuthenticationByIdsConcurrent(lock *sync.Mutex, input chan []string, output chan int, pause chan bool, result *map[string][]interface{}) {
+out:
 	for userIds := range input {
 		batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
 		stepMap := make(map[string]msgraphcore.BatchItem)
 
 		for _, id := range userIds {
+			if stepMap[id] != nil {
+				output <- 1
+				continue
+			}
+
 			request, err := g.userClient.Users().ByUserId(id).Authentication().Methods().ToGetRequestInformation(context.Background(), nil)
 			if err != nil {
 				g.printError(err)
 				return
 			}
+
 			step, err := batch.AddBatchRequestStep(*request)
 			if err != nil {
 				g.printError(err)
 				return
 			}
+
 			stepMap[id] = step
 		}
+
+		for len(pause) > 0 {
+			// Wait if paused
+		}
+
 		resp, err := batch.Send(context.Background(), g.userClient.GetAdapter())
 		if err != nil {
 			g.printError(err)
 			return
 		}
 
+		if len(pause) > 0 {
+			// Sent batch during pause, abandon result
+			input <- userIds
+			continue
+		}
+
 		for k, v := range stepMap {
 			response, err := msgraphcore.GetBatchResponseById[models.AuthenticationMethodCollectionResponseable](resp, *v.GetId(), models.CreateAuthenticationMethodCollectionResponseFromDiscriminatorValue)
 			if err != nil {
-				g.printError(err)
-				return
+				if strings.Contains(err.Error(), "429") {
+					input <- userIds
+					if len(pause) == 0 {
+						pause <- true
+						time.Sleep(30 * time.Second)
+						<-pause
+					}
+					continue out
+				} else {
+					g.printError(err)
+				}
 			}
 			lock.Lock()
 			for _, v := range response.GetValue() {
 				(*result)[k] = append((*result)[k], v.GetBackingStore().Enumerate())
 			}
 			lock.Unlock()
+			output <- 1
 		}
 	}
 }
 
-func (g *GraphAPI) GetResourceConcurrent(c *ishell.Context, userIds []string, n int, slice int, f func(*sync.Mutex, chan []string, *map[string][]interface{})) map[string][]interface{} {
+func (g *GraphAPI) GetResourceConcurrent(c *ishell.Context, userIds []string, n int, slice int, f func(*sync.Mutex, chan []string, chan int, chan bool, *map[string][]interface{})) map[string][]interface{} {
 	result := make(map[string][]interface{})
 	lock := sync.Mutex{}
 
-	input := make(chan []string, n)
+	input := make(chan []string, len(userIds)/slice+1)
+	output := make(chan int, len(userIds))
+	pause := make(chan bool, n)
 
 	for i := 0; i < n; i++ {
-		go f(&lock, input, &result)
+		go f(&lock, input, output, pause, &result)
 	}
-
-	c.ProgressBar().Start()
-	c.ProgressBar().Progress(0)
 
 	i := 0
 	for ; i < len(userIds)-slice; i += slice {
 		input <- userIds[i : i+slice]
-
-		percent := i * 100 / len(userIds)
-		c.ProgressBar().Suffix(fmt.Sprint(" ", i, "/", len(userIds), " (", percent, "%)"))
-		c.ProgressBar().Progress(percent)
 	}
 	input <- userIds[i:]
-	close(input)
 
-	for len(input) > 0 {
+	c.ProgressBar().Start()
+
+	for len(output) != len(userIds) {
+		percent := len(output) * 100 / len(userIds)
+
+		if len(pause) > 0 {
+			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%) PAUSED: Too many requests, please wait..."))
+			c.ProgressBar().Progress(percent)
+		} else {
+			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%)", "                                            "))
+			c.ProgressBar().Progress(percent)
+		}
 	}
 
-	c.ProgressBar().Suffix(fmt.Sprint(" ", len(userIds), "/", len(userIds), " (", 100, "%)"))
+	c.ProgressBar().Suffix(fmt.Sprint(" ", len(userIds), "/", len(userIds), " (", 100, "%)", "                                          "))
 	c.ProgressBar().Progress(100)
 	c.ProgressBar().Stop()
 
@@ -307,10 +343,7 @@ func (g *GraphAPI) printError(err error) {
 		fmt.Printf("error: %s\n", ApiError.Error())
 		fmt.Printf("code: %d\n", ApiError.ResponseStatusCode)
 		fmt.Printf("msg: %s\n", ApiError.Message)
-
-		for _, k := range ApiError.ResponseHeaders.ListKeys() {
-			fmt.Printf("%v: %v\n", k, ApiError.ResponseHeaders.Get(k))
-		}
+		fmt.Printf("header: %v\n", ApiError.ResponseHeaders)
 	default:
 		fmt.Printf("%T > error: %#v", err, err)
 	}
