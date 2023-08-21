@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Joker-Jane/msgraph-cli/api"
-	"github.com/abiosoft/ishell"
+	"github.com/abiosoft/ishell/v2"
 	"github.com/abiosoft/readline"
+	"github.com/microsoftgraph/msgraph-sdk-go/groups"
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,47 +37,42 @@ func main() {
 	shell.AddCmd(&ishell.Cmd{
 		Name: "auth",
 		Help: "Usage: auth <credential_file> OR auth <client_id> <client_secret> <tenant_id>",
-		Completer: func(args []string) []string {
+		CompleterWithPrefix: func(prefix string, args []string) []string {
 			if len(args) == 0 {
-				return getDirectory()
+				return getDirectory(prefix)
 			}
 			return []string{}
 		},
 		Func: auth,
 	})
 
-	getCmd := ishell.Cmd{
-		Name: "get",
-		Help: "Usage: get <users|resource> <arguments...>",
-	}
-
-	getCmd.AddCmd(&ishell.Cmd{
-		Name: "users",
-		Help: "Usage: get users <output_file>",
-		Completer: func(args []string) []string {
+	shell.AddCmd(&ishell.Cmd{
+		Name: "list",
+		Help: "Usage: list <resource> <output_file> [expand]",
+		CompleterWithPrefix: func(prefix string, args []string) []string {
 			if len(args) == 0 {
-				return getDirectory()
+				return []string{"users", "groups"}
+			} else if len(args) == 1 {
+				return getDirectory(prefix)
 			}
 			return []string{}
 		},
-		Func: getUser,
+		Func: listResource,
 	})
 
-	getCmd.AddCmd(&ishell.Cmd{
-		Name: "resource",
-		Help: "Usage: get resource <type> <input_file> <output_file> [worker_count=4]",
-		Completer: func(args []string) []string {
+	shell.AddCmd(&ishell.Cmd{
+		Name: "get",
+		Help: "Usage: get <resource> <users_file> <output_file> [worker_count=4]",
+		CompleterWithPrefix: func(prefix string, args []string) []string {
 			if len(args) == 0 {
-				return []string{"authenticate"}
+				return []string{"authentication/methods"}
 			} else if len(args) < 3 {
-				return getDirectory()
+				return getDirectory(prefix)
 			}
 			return []string{}
 		},
 		Func: getResource,
 	})
-
-	shell.AddCmd(&getCmd)
 
 	if len(os.Args) > 1 {
 		err := shell.Process(os.Args[1:]...)
@@ -130,10 +128,10 @@ func auth(c *ishell.Context) {
 	fmt.Println("Success: Graph API authenticated")
 }
 
-func getUser(c *ishell.Context) {
+func listResource(c *ishell.Context) {
 	start := time.Now()
 
-	if len(c.Args) != 1 {
+	if len(c.Args) != 2 && len(c.Args) != 3 {
 		fmt.Println(c.Cmd.Help)
 		return
 	}
@@ -144,9 +142,31 @@ func getUser(c *ishell.Context) {
 		return
 	}
 
-	result := g.GetUsers()
+	expand := c.Args[2:3]
 
-	if dumpFile(result, c.Args[0], true) {
+	var result []map[string]interface{}
+
+	switch c.Args[0] {
+	case "users":
+		cfg := &users.UsersRequestBuilderGetRequestConfiguration{
+			QueryParameters: &users.UsersRequestBuilderGetQueryParameters{
+				Expand: expand,
+			},
+		}
+		result = g.ListResource(c.Args[0], cfg, expand)
+	case "groups":
+		cfg := &groups.GroupsRequestBuilderGetRequestConfiguration{
+			QueryParameters: &groups.GroupsRequestBuilderGetQueryParameters{
+				Expand: expand,
+			},
+		}
+		result = g.ListResource(c.Args[0], cfg, expand)
+	default:
+		fmt.Println(c.Cmd.Help)
+		return
+	}
+
+	if dumpFile(result, c.Args[1], true) {
 		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(result), time.Since(start).Seconds())
 	}
 }
@@ -183,11 +203,11 @@ func getResource(c *ishell.Context) {
 	var result map[string][]interface{}
 
 	switch c.Args[0] {
-	case "authenticate":
+	case "authentication/methods":
 		cfg := &users.ItemAuthenticationMethodsRequestBuilderGetRequestConfiguration{}
-		result = api.GetResourceByUserIdsConcurrent(c, userIds, "authentication/methods", cfg, workerCount, 20)
+		result = g.GetResourceByUserIdsConcurrent(c, userIds, c.Args[0], cfg, workerCount, 20)
 	default:
-		fmt.Println("Error: Unknown resource")
+		fmt.Println(c.Cmd.Help)
 		return
 	}
 
@@ -196,14 +216,25 @@ func getResource(c *ishell.Context) {
 	}
 }
 
-func getDirectory() []string {
-	entries, err := os.ReadDir("./")
-	if err != nil {
-		return []string{}
+func getDirectory(prefix string) []string {
+	path := "./" + prefix
+	if f, err := os.Stat(path); err == nil {
+		if !f.IsDir() {
+			return []string{prefix}
+		}
+	} else {
+		path = path[:strings.LastIndex(path, "/")] + "/"
 	}
+
+	entries, _ := os.ReadDir(path)
+
 	var es []string
 	for _, e := range entries {
-		es = append(es, e.Name())
+		if path == "./" {
+			es = append(es, e.Name())
+		} else {
+			es = append(es, filepath.Dir(path[2:]+"/")+"/"+e.Name())
+		}
 	}
 	return es
 }
@@ -237,6 +268,12 @@ func dumpFile(result interface{}, file string, pretty bool) bool {
 
 	if err != nil {
 		fmt.Println("Error: Failed to encode the output JSON")
+		return false
+	}
+
+	err = os.MkdirAll(filepath.Dir(file), 0666)
+	if err != nil {
+		fmt.Println("Error: Failed to create the directory")
 		return false
 	}
 

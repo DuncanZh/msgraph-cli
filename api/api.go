@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/abiosoft/ishell"
+	"github.com/abiosoft/ishell/v2"
 	abstractions "github.com/microsoft/kiota-abstractions-go"
 	auth "github.com/microsoft/kiota-authentication-azure-go"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
@@ -61,23 +61,41 @@ func (g *GraphAPI) InitializeGraphForUserAuth(clientId string, clientSecret stri
 	return nil
 }
 
-func (g *GraphAPI) GetUsers() []map[string]interface{} {
-	result, err := g.userClient.Users().Get(context.Background(), nil)
-	if err != nil {
-		g.printError(err)
-		return nil
+func (g *GraphAPI) ListResource(resource string, configuration T, relatedResources []string) []map[string]interface{} {
+	resources := strings.Split(resource, "/")
+	for i := 0; i < len(resources); i++ {
+		resources[i] = strings.Title(resources[i])
 	}
 
+	method := reflect.ValueOf(g.userClient)
+	for _, v := range resources {
+		method = method.MethodByName(v).Call([]reflect.Value{})[0]
+	}
+	resps := method.MethodByName("Get").Call([]reflect.Value{reflect.ValueOf(context.Background()), reflect.ValueOf(configuration)})
+
+	if !resps[1].IsNil() {
+		g.printError(resps[1].Interface().(error))
+		return nil
+	}
+	resp := resps[0].Interface().(models.BaseCollectionPaginationCountResponseable)
+
 	var results []map[string]interface{}
-	pageIterator, err := msgraphcore.NewPageIterator[models.Userable](result, g.userClient.GetAdapter(), models.CreateUserCollectionResponseFromDiscriminatorValue)
-	err = pageIterator.Iterate(context.Background(), func(user models.Userable) bool {
-		results = append(results, user.GetBackingStore().Enumerate())
+	pageIterator, err := msgraphcore.NewPageIterator[models.Entityable](resp, g.userClient.GetAdapter(), models.CreateEntityFromDiscriminatorValue)
+	err = pageIterator.Iterate(context.Background(), func(item models.Entityable) bool {
+		for _, v := range relatedResources {
+			retrieveRelatedResource(&item, v)
+		}
+		results = append(results, item.GetBackingStore().Enumerate())
 		return true
 	})
+	if err != nil {
+		g.printError(err)
+	}
+
 	return results
 }
 
-func GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resource string, configuration T, n int, slice int) map[string][]interface{} {
+func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resource string, configuration T, n int, slice int) map[string][]interface{} {
 	result := make(map[string][]interface{})
 	lock := sync.Mutex{}
 
@@ -85,15 +103,13 @@ func GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resourc
 	output := make(chan bool, len(userIds))
 	pause := make(chan int, 2)
 
-	g := c.Get("api").(*GraphAPI)
-
 	resources := strings.Split(resource, "/")
 	for i := 0; i < len(resources); i++ {
 		resources[i] = strings.Title(resources[i])
 	}
 
 	for i := 0; i < n; i++ {
-		go GetResourceByUserIdsWorker(g, resources, configuration, input, output, pause, &lock, &result)
+		go g.GetResourceByUserIdsWorker(resources, configuration, input, output, pause, &lock, &result)
 	}
 
 	i := 0
@@ -127,7 +143,7 @@ func GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resourc
 	return result
 }
 
-func GetResourceByUserIdsWorker(g *GraphAPI, resources []string, configuration T, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
+func (g *GraphAPI) GetResourceByUserIdsWorker(resources []string, configuration T, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
 retry:
 	for userIds := range input {
 		batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
@@ -202,4 +218,24 @@ func (g *GraphAPI) printError(err error) {
 			fmt.Printf("msg: %s\n", *terr.GetMessage())
 		}
 	}
+}
+
+func retrieveRelatedResource(item *models.Entityable, resource string) {
+	r := (*item).GetBackingStore().Enumerate()
+
+	m, _ := (*item).GetBackingStore().Get(resource)
+
+	var a []models.Entityable
+	arr := reflect.ValueOf(m)
+	for i := 0; i < arr.Len(); i++ {
+		a = append(a, arr.Index(i).Interface().(models.Entityable))
+	}
+
+	var result []map[string]interface{}
+	for _, v := range a {
+		result = append(result, v.GetBackingStore().Enumerate())
+	}
+	r["members"] = result
+
+	(*item).GetBackingStore().Set(resource, r)
 }
