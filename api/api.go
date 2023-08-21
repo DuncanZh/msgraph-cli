@@ -12,6 +12,8 @@ import (
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	"github.com/microsoftgraph/msgraph-sdk-go/models/odataerrors"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,8 @@ type GraphAPI struct {
 	userClient      *msgraphsdk.GraphServiceClient
 	graphUserScopes []string
 }
+
+type T interface{}
 
 func NewGraphAPI() *GraphAPI {
 	g := &GraphAPI{}
@@ -58,19 +62,6 @@ func (g *GraphAPI) InitializeGraphForUserAuth(clientId string, clientSecret stri
 }
 
 func (g *GraphAPI) GetUsers() []map[string]interface{} {
-	/*
-		query := users.UsersRequestBuilderGetQueryParameters{
-			Select: []string{"displayName", "id"},
-		}
-
-		result, err := g.userClient.Users().Get(context.Background(), &users.UsersRequestBuilderGetRequestConfiguration{
-			QueryParameters: &query,
-		})
-		if err != nil {
-			g.printError(err)
-			return
-		}
-	*/
 	result, err := g.userClient.Users().Get(context.Background(), nil)
 	if err != nil {
 		g.printError(err)
@@ -86,133 +77,23 @@ func (g *GraphAPI) GetUsers() []map[string]interface{} {
 	return results
 }
 
-func (g *GraphAPI) GetAuthenticationById(userId string) map[string]interface{} {
-	result, err := g.userClient.Users().ByUserId(userId).Authentication().Methods().Get(context.Background(), nil)
-	if err != nil {
-		g.printError(err)
-		return nil
-	}
-	g.userClient.Users().GetByIds()
-	return result.GetBackingStore().Enumerate()
-}
-
-func (g *GraphAPI) GetAuthenticationByIds(userIds []string) *map[string][]map[string]interface{} {
-	batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
-	stepMap := make(map[string]msgraphcore.BatchItem)
-	result := make(map[string][]map[string]interface{})
-
-	for _, id := range userIds {
-		request, err := g.userClient.Users().ByUserId(id).Authentication().Methods().ToGetRequestInformation(context.Background(), nil)
-		if err != nil {
-			g.printError(err)
-			return nil
-		}
-		step, err := batch.AddBatchRequestStep(*request)
-		if err != nil {
-			g.printError(err)
-			return nil
-		}
-		stepMap[id] = step
-	}
-	send, err := batch.Send(context.Background(), g.userClient.GetAdapter())
-	if err != nil {
-		g.printError(err)
-		return nil
-	}
-
-	for k, v := range stepMap {
-		response, err := msgraphcore.GetBatchResponseById[models.AuthenticationMethodCollectionResponseable](send, *v.GetId(), models.CreateAuthenticationMethodCollectionResponseFromDiscriminatorValue)
-		if err != nil {
-			g.printError(err)
-			return nil
-		}
-
-		for _, v := range response.GetValue() {
-			result[k] = append(result[k], v.GetBackingStore().Enumerate())
-		}
-	}
-
-	return &result
-}
-
-func (g *GraphAPI) GetAuthenticationByIdsConcurrent(lock *sync.Mutex, input chan []string, output chan int, pause chan bool, result *map[string][]interface{}) {
-out:
-	for userIds := range input {
-		batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
-		stepMap := make(map[string]msgraphcore.BatchItem)
-
-		for _, id := range userIds {
-			if stepMap[id] != nil {
-				output <- 1
-				continue
-			}
-
-			request, err := g.userClient.Users().ByUserId(id).Authentication().Methods().ToGetRequestInformation(context.Background(), nil)
-			if err != nil {
-				g.printError(err)
-				return
-			}
-
-			step, err := batch.AddBatchRequestStep(*request)
-			if err != nil {
-				g.printError(err)
-				return
-			}
-
-			stepMap[id] = step
-		}
-
-		for len(pause) > 0 {
-			// Wait if paused
-		}
-
-		resp, err := batch.Send(context.Background(), g.userClient.GetAdapter())
-		if err != nil {
-			g.printError(err)
-			return
-		}
-
-		if len(pause) > 0 {
-			// Sent batch during pause, abandon result
-			input <- userIds
-			continue
-		}
-
-		for k, v := range stepMap {
-			response, err := msgraphcore.GetBatchResponseById[models.AuthenticationMethodCollectionResponseable](resp, *v.GetId(), models.CreateAuthenticationMethodCollectionResponseFromDiscriminatorValue)
-			if err != nil {
-				if strings.Contains(err.Error(), "429") {
-					input <- userIds
-					if len(pause) == 0 {
-						pause <- true
-						time.Sleep(30 * time.Second)
-						<-pause
-					}
-					continue out
-				} else {
-					g.printError(err)
-				}
-			}
-			lock.Lock()
-			for _, v := range response.GetValue() {
-				(*result)[k] = append((*result)[k], v.GetBackingStore().Enumerate())
-			}
-			lock.Unlock()
-			output <- 1
-		}
-	}
-}
-
-func (g *GraphAPI) GetResourceConcurrent(c *ishell.Context, userIds []string, n int, slice int, f func(*sync.Mutex, chan []string, chan int, chan bool, *map[string][]interface{})) map[string][]interface{} {
+func GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resource string, configuration T, n int, slice int) map[string][]interface{} {
 	result := make(map[string][]interface{})
 	lock := sync.Mutex{}
 
 	input := make(chan []string, len(userIds)/slice+1)
-	output := make(chan int, len(userIds))
-	pause := make(chan bool, n)
+	output := make(chan bool, len(userIds))
+	pause := make(chan int, 2)
+
+	g := c.Get("api").(*GraphAPI)
+
+	resources := strings.Split(resource, "/")
+	for i := 0; i < len(resources); i++ {
+		resources[i] = strings.Title(resources[i])
+	}
 
 	for i := 0; i < n; i++ {
-		go f(&lock, input, output, pause, &result)
+		go GetResourceByUserIdsWorker(g, resources, configuration, input, output, pause, &lock, &result)
 	}
 
 	i := 0
@@ -223,14 +104,18 @@ func (g *GraphAPI) GetResourceConcurrent(c *ishell.Context, userIds []string, n 
 
 	c.ProgressBar().Start()
 
+	t := 0
 	for len(output) != len(userIds) {
 		percent := len(output) * 100 / len(userIds)
 
-		if len(pause) > 0 {
-			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%) PAUSED: Too many requests, please wait..."))
+		if len(pause) == 2 {
+			t = <-pause
+		}
+		if len(pause) == 1 {
+			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%) PAUSED: Too many requests, please wait for ", t, " seconds..."))
 			c.ProgressBar().Progress(percent)
 		} else {
-			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%)", "                                            "))
+			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%)", "                                                            "))
 			c.ProgressBar().Progress(percent)
 		}
 	}
@@ -242,86 +127,65 @@ func (g *GraphAPI) GetResourceConcurrent(c *ishell.Context, userIds []string, n 
 	return result
 }
 
-/*
-func (g *GraphAPI) GetResourceByIdsConcurrent(userIds []string, resource string, wg *sync.WaitGroup, lock *sync.Mutex, result *map[string][]map[string]interface{}) {
-	defer wg.Done()
+func GetResourceByUserIdsWorker(g *GraphAPI, resources []string, configuration T, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
+retry:
+	for userIds := range input {
+		batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
+		stepMap := make(map[string]msgraphcore.BatchItem)
 
-	resources := strings.Split(resource, "/")
-	for i := 0; i < len(resources); i++ {
-		resources[i] = strings.Title(resources[i])
-	}
-	resource = strings.Join(resources, "")
+		for _, id := range userIds {
+			if stepMap[id] != nil {
+				output <- true
+			}
 
-	batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
-	stepMap := make(map[string]msgraphcore.BatchItem, len(userIds))
+			method := reflect.ValueOf(g.userClient.Users().ByUserId(id))
+			for _, v := range resources {
+				method = method.MethodByName(v).Call([]reflect.Value{})[0]
+			}
+			request := method.MethodByName("ToGetRequestInformation").Call([]reflect.Value{reflect.ValueOf(context.Background()), reflect.ValueOf(configuration)})[0].Interface().(*abstractions.RequestInformation)
 
-	for _, id := range userIds {
-		method := reflect.ValueOf(g.userClient.Users().ByUserId(id))
-		for _, v := range resources {
-			method = method.MethodByName(v).Call([]reflect.Value{})[0]
+			step, err := batch.AddBatchRequestStep(*request)
+			if err != nil {
+				input <- userIds
+				continue retry
+			}
+			stepMap[id] = step
 		}
-		request := method.MethodByName("ToGetRequestInformation").Call([]reflect.Value{reflect.ValueOf(context.Background()), reflect.ValueOf((*users.ItemAuthenticationMethodsRequestBuilderGetRequestConfiguration)(nil))})[0].Interface().(*abstractions.RequestInformation)
 
-		step, err := batch.AddBatchRequestStep(*request)
+		for len(pause) > 0 {
+			// Wait if paused
+		}
+
+		resp, err := batch.Send(context.Background(), g.userClient.GetAdapter())
 		if err != nil {
-			g.printError(err)
-			return
+			input <- userIds
+			continue retry
 		}
-		stepMap[id] = step
-	}
-	send, err := batch.Send(context.Background(), g.userClient.GetAdapter())
-	if err != nil {
-		g.printError(err)
-		return
-	}
 
-	for k, v := range stepMap {
-		response, err := msgraphcore.GetBatchResponseById[models.BaseItemCollectionResponseable](send, *v.GetId(), models.CreateBaseItemCollectionResponseFromDiscriminatorValue)
-		if err != nil {
-			g.printError(err)
-			return
+		for k, v := range stepMap {
+			response, err := msgraphcore.GetBatchResponseById[models.BaseItemCollectionResponseable](resp, *v.GetId(), models.CreateBaseItemCollectionResponseFromDiscriminatorValue)
+			if err != nil {
+				if strings.Contains(err.Error(), "429") && len(pause) == 0 {
+					t, _ := strconv.ParseInt(resp.GetResponseById(*v.GetId()).GetHeaders()["Retry-After"], 10, 32)
+					pause <- int(t)
+					pause <- int(t)
+					time.Sleep(time.Duration(t) * time.Second)
+					<-pause
+				}
+				input <- userIds
+				continue retry
+			}
+
+			lock.Lock()
+			for _, v := range response.GetValue() {
+				(*result)[k] = append((*result)[k], v.GetBackingStore().Enumerate())
+			}
+			lock.Unlock()
+
+			output <- true
 		}
-		lock.Lock()
-		for _, v := range response.GetValue() {
-			(*result)[k] = append((*result)[k], v.GetBackingStore().Enumerate())
-		}
-		lock.Unlock()
 	}
 }
-
-func (g *GraphAPI) GetResourceConcurrent(c *ishell.Context, userIds []string, n int, slice int, f func(*sync.Mutex, chan []string, *map[string][]interface{})) map[string][]interface{} {
-	result := make(map[string][]interface{})
-	lock := sync.Mutex{}
-
-	input := make(chan []string, n)
-
-	for i := 0; i < n; i++ {
-		go f(&lock, input, &result)
-	}
-
-	c.ProgressBar().Start()
-	c.ProgressBar().Progress(0)
-
-	i := 0
-	for ; i < len(userIds)-slice; i += slice {
-		input <- userIds[i : i+slice]
-
-		percent := i * 100 / len(userIds)
-		c.ProgressBar().Suffix(fmt.Sprint(" ", i, "/", len(userIds), " (", percent, "%)"))
-		c.ProgressBar().Progress(percent)
-	}
-	input <- userIds[i:]
-
-	for len(input) > 0 {
-	}
-
-	c.ProgressBar().Suffix(fmt.Sprint(" ", len(userIds), "/", len(userIds), " (", 100, "%)"))
-	c.ProgressBar().Progress(100)
-	c.ProgressBar().Stop()
-
-	return result
-}
-*/
 
 func (g *GraphAPI) IsInitiated() bool {
 	return g.userClient != nil
@@ -329,7 +193,6 @@ func (g *GraphAPI) IsInitiated() bool {
 
 func (g *GraphAPI) printError(err error) {
 	var ODataError *odataerrors.ODataError
-	var ApiError *abstractions.ApiError
 	switch {
 	case errors.As(err, &ODataError):
 		errors.As(err, &ODataError)
@@ -338,13 +201,5 @@ func (g *GraphAPI) printError(err error) {
 			fmt.Printf("code: %s\n", *terr.GetCode())
 			fmt.Printf("msg: %s\n", *terr.GetMessage())
 		}
-	case errors.As(err, &ApiError):
-		errors.As(err, &ApiError)
-		fmt.Printf("error: %s\n", ApiError.Error())
-		fmt.Printf("code: %d\n", ApiError.ResponseStatusCode)
-		fmt.Printf("msg: %s\n", ApiError.Message)
-		fmt.Printf("header: %v\n", ApiError.ResponseHeaders)
-	default:
-		fmt.Printf("%T > error: %#v", err, err)
 	}
 }

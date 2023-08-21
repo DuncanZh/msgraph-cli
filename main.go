@@ -6,6 +6,7 @@ import (
 	"github.com/Joker-Jane/msgraph-cli/api"
 	"github.com/abiosoft/ishell"
 	"github.com/abiosoft/readline"
+	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"os"
 	"strconv"
 	"time"
@@ -61,7 +62,7 @@ func main() {
 
 	getCmd.AddCmd(&ishell.Cmd{
 		Name: "resource",
-		Help: "Usage: get resource <type> <input_file> <output_file> [worker_count=20]",
+		Help: "Usage: get resource <type> <input_file> <output_file> [worker_count=4]",
 		Completer: func(args []string) []string {
 			if len(args) == 0 {
 				return []string{"authenticate"}
@@ -158,7 +159,7 @@ func getResource(c *ishell.Context) {
 		return
 	}
 
-	workerCount := 10
+	workerCount := 4
 	if len(c.Args) == 4 {
 		i, err := strconv.ParseUint(c.Args[3], 10, 32)
 		if err != nil {
@@ -183,7 +184,8 @@ func getResource(c *ishell.Context) {
 
 	switch c.Args[0] {
 	case "authenticate":
-		result = g.GetResourceConcurrent(c, userIds, workerCount, 20, g.GetAuthenticationByIdsConcurrent)
+		cfg := &users.ItemAuthenticationMethodsRequestBuilderGetRequestConfiguration{}
+		result = api.GetResourceByUserIdsConcurrent(c, userIds, "authentication/methods", cfg, workerCount, 20)
 	default:
 		fmt.Println("Error: Unknown resource")
 		return
