@@ -58,7 +58,7 @@ get <source> <resource> <input_file> <output_file> [expand]
 
 ## Examples
 
-See `samples` directory for more sample outputs.
+See `samples` folder for more sample outputs.
 
 **Authenticate with a credentials file**:
 
@@ -83,9 +83,6 @@ auth my_client_id my_client_secret my_tenant_id
 ```
 
 **Get users**:
-
-
-### Example
 
 API from official document: `GET /users`
 
