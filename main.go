@@ -62,11 +62,13 @@ func main() {
 
 	shell.AddCmd(&ishell.Cmd{
 		Name: "get",
-		Help: "Usage: get <resource> <users_file> <output_file> [expand]",
+		Help: "Usage: get <source> <resource> <users_file> <output_file> [expand]",
 		CompleterWithPrefix: func(prefix string, args []string) []string {
 			if len(args) == 0 {
+				return []string{"users", "groups", "servicePrincipals"}
+			} else if len(args) == 1 {
 				return shell.Get("get").([]string)
-			} else if len(args) < 3 {
+			} else if len(args) < 4 {
 				return getDirectory(prefix)
 			}
 			return []string{}
@@ -137,23 +139,30 @@ func auth(c *ishell.Context) {
 func listResource(c *ishell.Context) {
 	start := time.Now()
 
-	var expand []string
-	if len(c.Args) == 3 {
-		expand = c.Args[2:3]
-	} else if len(c.Args) != 2 {
-		fmt.Println(c.Cmd.Help)
-		return
-	}
-
 	g := c.Get("api").(*api.GraphAPI)
 	if !g.IsInitiated() {
 		fmt.Println("Error: Use 'auth' command to authenticate the API before use")
 		return
 	}
 
-	result := g.ListResource(c.Args[0], expand)
+	var expand []string
+	if len(c.Args) == 3 {
+		expand = []string{c.Args[2]}
+	} else if len(c.Args) != 2 {
+		fmt.Println(c.Cmd.Help)
+		return
+	}
 
-	if dumpFile(result, c.Args[1], true) {
+	resource := c.Args[0]
+	outputFile := c.Args[1]
+
+	result := g.ListResource(resource, expand)
+	if result == nil {
+		fmt.Printf("Failed: Unable to process the input in %.2f seconds\n", time.Since(start).Seconds())
+		return
+	}
+
+	if dumpFile(result, outputFile, true) {
 		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(result), time.Since(start).Seconds())
 	}
 }
@@ -161,29 +170,38 @@ func listResource(c *ishell.Context) {
 func getResource(c *ishell.Context) {
 	start := time.Now()
 
-	var expand []string
-	if len(c.Args) == 4 {
-		expand = c.Args[3:4]
-	} else if len(c.Args) != 3 {
-		fmt.Println(c.Cmd.Help)
-		return
-	}
-
 	g := c.Get("api").(*api.GraphAPI)
 	if !g.IsInitiated() {
 		fmt.Println("Error: Use 'auth' command to authenticate the API before use")
 		return
 	}
 
-	userIds := getUserIds(c.Args[1])
-	if userIds == nil {
+	var expand []string
+	if len(c.Args) == 5 {
+		expand = []string{c.Args[4]}
+	} else if len(c.Args) != 4 {
+		fmt.Println(c.Cmd.Help)
 		return
 	}
 
-	result := g.GetResourceByUserIdsConcurrent(c, userIds, c.Args[0], expand)
+	source := c.Args[0]
+	resource := c.Args[1]
+	inputFile := c.Args[2]
+	outputFile := c.Args[3]
 
-	if dumpFile(result, c.Args[2], true) {
-		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(userIds), time.Since(start).Seconds())
+	ids := getIds(inputFile)
+	if ids == nil {
+		return
+	}
+
+	result := g.GetResourceByIdsConcurrent(c, source, resource, ids, expand)
+	if result == nil {
+		fmt.Printf("Failed: Unable to process the input in %.2f seconds\n", time.Since(start).Seconds())
+		return
+	}
+
+	if dumpFile(result, outputFile, true) {
+		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(ids), time.Since(start).Seconds())
 	}
 }
 
@@ -220,22 +238,22 @@ func getDirectory(prefix string) []string {
 	return es
 }
 
-func getUserIds(file string) []string {
-	userInput, err := os.ReadFile(file)
+func getIds(file string) []string {
+	input, err := os.ReadFile(file)
 	if err != nil {
 		fmt.Println("Error: Failed to read the input file")
 		return nil
 	}
 
-	var userJSON []map[string]interface{}
-	err = json.Unmarshal(userInput, &userJSON)
+	var JSON []map[string]interface{}
+	err = json.Unmarshal(input, &JSON)
 	if err != nil {
 		fmt.Println("Error: Failed to parse input JSON")
 		return nil
 	}
 
 	var result []string
-	for _, v := range userJSON {
+	for _, v := range JSON {
 		result = append(result, v["id"].(string))
 	}
 	return result

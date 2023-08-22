@@ -82,12 +82,13 @@ func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]i
 	}
 	method = method.MethodByName("Get")
 
-	//Create config for expand, equivalent to
-	//cfg := &users.UsersRequestBuilderGetRequestConfiguration{
-	//	QueryParameters: &users.UsersRequestBuilderGetQueryParameters{
-	//		Expand: expand,
-	//	},
-	//}
+	// Create config for expand
+	// Equivalent to
+	// cfg := &users.UsersRequestBuilderGetRequestConfiguration{
+	// 	QueryParameters: &users.UsersRequestBuilderGetQueryParameters{
+	// 		Expand: expand,
+	// 	},
+	// }
 	cfgType := method.Type().In(1)
 	cfg := reflect.Zero(cfgType)
 	if len(expand) == 1 {
@@ -98,8 +99,7 @@ func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]i
 		cfg.Elem().FieldByName("QueryParameters").Set(query)
 	}
 
-	// Call the method with default context and the required type
-	// Get the type of the second argument and create a nil pointer
+	// Call the method with default context and the config
 	resp := method.Call([]reflect.Value{reflect.ValueOf(context.Background()), cfg})
 
 	// Check error, the second return value
@@ -128,42 +128,30 @@ func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]i
 	return results
 }
 
-func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resource string, expand []string) map[string][]interface{} {
+func (g *GraphAPI) GetResourceByIdsConcurrent(c *ishell.Context, source string, resource string, ids []string, expand []string) map[string][]interface{} {
 	result := make(map[string][]interface{})
 	lock := sync.Mutex{}
 
 	slice := 20
 	workers := 4
 
-	input := make(chan []string, len(userIds)/slice+1)
-	output := make(chan bool, len(userIds))
+	input := make(chan []string, len(ids)/slice+1)
+	output := make(chan bool, len(ids))
 	pause := make(chan int, 2)
 
+	source = strings.Title(source)
 	resources := strings.Split(resource, "/")
 	for i := 0; i < len(resources); i++ {
 		resources[i] = strings.Title(resources[i])
 	}
 	resource = strings.Join(resources, "")
 
-	method := reflect.ValueOf(g.userClient.Users().ByUserId(userIds[0]))
-	for _, v := range resources {
-		if v == "Inbox" {
-			method = method.MethodByName("ByMailFolderId")
-			if !method.IsValid() {
-				fmt.Println("Error: Unknown resource " + v)
-				return nil
-			}
-			method = method.Call([]reflect.Value{reflect.ValueOf("inbox")})[0]
-		} else {
-			method = method.MethodByName(v)
-			if !method.IsValid() {
-				fmt.Println("Error: Unknown resource " + v)
-				return nil
-			}
-			method = method.Call([]reflect.Value{})[0]
-		}
+	method := g.getCallingRequestMethod(source, resources, ids[0])
+	if !method.IsValid() {
+		return nil
 	}
-	cfgType := method.MethodByName("ToGetRequestInformation").Type().In(1)
+
+	cfgType := method.Type().In(1)
 	cfg := reflect.New(cfgType.Elem())
 	if len(expand) == 1 {
 		queryType := cfg.Elem().FieldByName("QueryParameters").Type()
@@ -173,20 +161,20 @@ func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []s
 	}
 
 	for i := 0; i < workers; i++ {
-		go g.GetResourceByUserIdsWorker(resources, cfg, input, output, pause, &lock, &result)
+		go g.GetResourceByIdsWorker(source, resources, cfg, input, output, pause, &lock, &result)
 	}
 
 	i := 0
-	for ; i < len(userIds)-slice; i += slice {
-		input <- userIds[i : i+slice]
+	for ; i < len(ids)-slice; i += slice {
+		input <- ids[i : i+slice]
 	}
-	input <- userIds[i:]
+	input <- ids[i:]
 
 	c.ProgressBar().Start()
 
 	t := 0
-	for len(output) != len(userIds) {
-		percent := len(output) * 100 / len(userIds)
+	for len(output) != len(ids) {
+		percent := len(output) * 100 / len(ids)
 
 		if len(pause) == 2 {
 			t = <-pause
@@ -197,48 +185,43 @@ func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []s
 			}
 		}
 		if len(pause) == 1 {
-			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%) PAUSED: Too many requests, please wait for ", t, " seconds..."))
+			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(ids), " (", percent, "%) PAUSED: Too many requests, please wait for ", t, " seconds..."))
 			c.ProgressBar().Progress(percent)
 		} else {
-			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%)", "                                                            "))
+			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(ids), " (", percent, "%)", "                                                            "))
 			c.ProgressBar().Progress(percent)
 		}
 	}
 
-	c.ProgressBar().Suffix(fmt.Sprint(" ", len(userIds), "/", len(userIds), " (", 100, "%)", "                                          "))
+	c.ProgressBar().Suffix(fmt.Sprint(" ", len(ids), "/", len(ids), " (", 100, "%)", "                                          "))
 	c.ProgressBar().Progress(100)
 	c.ProgressBar().Stop()
 
 	return result
 }
 
-func (g *GraphAPI) GetResourceByUserIdsWorker(resources []string, configuration reflect.Value, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
+func (g *GraphAPI) GetResourceByIdsWorker(source string, resources []string, configuration reflect.Value, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
 retry:
-	for userIds := range input {
+	for ids := range input {
 		batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
 		stepMap := make(map[string]msgraphcore.BatchItem)
 
-		for _, id := range userIds {
+		for _, id := range ids {
 			if stepMap[id] != nil {
 				output <- true
 			}
 
-			method := reflect.ValueOf(g.userClient.Users().ByUserId(id))
-			for _, v := range resources {
-				if v == "Inbox" {
-					method = method.MethodByName("ByMailFolderId")
-					method = method.Call([]reflect.Value{reflect.ValueOf("inbox")})[0]
-				} else {
-					method = method.MethodByName(v)
-					method = method.Call([]reflect.Value{})[0]
-				}
+			method := g.getCallingRequestMethod(source, resources, id)
+			if !method.IsValid() {
+				return
 			}
-			request := method.MethodByName("ToGetRequestInformation").Call([]reflect.Value{reflect.ValueOf(context.Background()), configuration})[0].Interface().(*abstractions.RequestInformation)
+
+			request := method.Call([]reflect.Value{reflect.ValueOf(context.Background()), configuration})[0].Interface().(*abstractions.RequestInformation)
 
 			step, err := batch.AddBatchRequestStep(*request)
 			if err != nil {
 				fmt.Println("\n" + err.Error())
-				input <- userIds
+				input <- ids
 				return
 			}
 			stepMap[id] = step
@@ -251,7 +234,7 @@ retry:
 		resp, err := batch.Send(context.Background(), g.userClient.GetAdapter())
 		if err != nil {
 			fmt.Println("\n" + err.Error())
-			input <- userIds
+			input <- ids
 			return
 		}
 
@@ -266,7 +249,7 @@ retry:
 						time.Sleep(time.Duration(t) * time.Second)
 						<-pause
 					}
-					input <- userIds
+					input <- ids
 					continue retry
 				} else if strings.Contains(err.Error(), "404") {
 					output <- true
@@ -303,20 +286,6 @@ func (g *GraphAPI) Test() {
 	if err != nil {
 		g.printError(err)
 	}
-	/*
-		for _, v := range resp.GetValue() {
-			fmt.Printf("%v", v.GetBackingStore().Enumerate())
-		}
-	*/
-	/*
-		pageIterator, err := msgraphcore.NewPageIterator[models.Entityable](resp, g.userClient.GetAdapter(), models.CreateEntityFromDiscriminatorValue)
-		err = pageIterator.Iterate(context.Background(), func(item models.Entityable) bool {
-			return true
-		})
-		if err != nil {
-			g.printError(err)
-		}
-	*/
 }
 
 func (g *GraphAPI) IsInitiated() bool {
@@ -353,5 +322,39 @@ func retrieveRelatedResource(item *models.DirectoryObjectable, resource string) 
 	}
 
 	m = result
-	(*item).GetBackingStore().Set(resource, m)
+	err := (*item).GetBackingStore().Set(resource, m)
+	if err != nil {
+		fmt.Println("Error: Failed to retrieve related resource")
+		return
+	}
+}
+
+func (g *GraphAPI) getCallingRequestMethod(source string, resources []string, id string) reflect.Value {
+	method := reflect.ValueOf(g.userClient)
+	method = method.MethodByName(source)
+	if !method.IsValid() {
+		fmt.Println("Error: Unknown data source " + source)
+		return reflect.Value{}
+	}
+	method = method.Call([]reflect.Value{})[0]
+	method = method.MethodByName("By" + strings.TrimSuffix(source, "s") + "Id").Call([]reflect.Value{reflect.ValueOf(id)})[0]
+
+	for _, v := range resources {
+		if v == "Inbox" {
+			method = method.MethodByName("ByMailFolderId")
+			if !method.IsValid() {
+				fmt.Println("Error: Unknown resource " + v)
+				return reflect.Value{}
+			}
+			method = method.Call([]reflect.Value{reflect.ValueOf("inbox")})[0]
+		} else {
+			method = method.MethodByName(v)
+			if !method.IsValid() {
+				fmt.Println("Error: Unknown resource " + v)
+				return reflect.Value{}
+			}
+			method = method.Call([]reflect.Value{})[0]
+		}
+	}
+	return method.MethodByName("ToGetRequestInformation")
 }

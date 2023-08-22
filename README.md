@@ -34,7 +34,9 @@ auth <client_id> <client_secret> <tenant_id>
 
 List the specific resource and dump to `output_file`.
 
-This command accepts an optional argument `expand` that fetches one additional resource related to the original resource. Please refer to the official document for avaliable resources.
+This command accepts an optional argument `expand` that fetches one additional resource related to the original resource. Available expands can be found under the `Relationships` section from the official document. 
+
+Refer to the official document for more available resources.
 
 ```
 list <resource> <output_file> [expand]
@@ -42,15 +44,21 @@ list <resource> <output_file> [expand]
 
 #### 3. `get`
 
-Get specified resources by user ids from `user_file` and dump to `output_file`. The input file must be a valid JSON array containing users with ids. Please refer to the output of `list users`.
+Get specified resources by ids from `input_file` and dump to `output_file`. The input file must be a valid JSON array containing sources with an id field. Please refer to the output of `list <source>`.
 
 This command accepts an optional argument `expand` that fetches one additional resource related to the original resource. Please refer to the official document for available resources.
 
+Common sources are `users`, `groups`, and `servicePrincipals`.
+
+Refer to the official document for more available sources and resources.
+
 ```
-get <resource> <user_file> <output_file> [expand]
+get <source> <resource> <input_file> <output_file> [expand]
 ```
 
 ## Examples
+
+See `samples` directory for more sample outputs.
 
 **Authenticate with a credentials file**:
 
@@ -76,9 +84,13 @@ auth my_client_id my_client_secret my_tenant_id
 
 **Get users**:
 
-```
-get users users.json
-```
+
+### Example
+
+API from official document: `GET /users`
+
+Command: `list users users.json`
+
 
 *users.json*
 
@@ -97,9 +109,10 @@ get users users.json
 
 **Get resources**:
 
-```
-get resource authenticate users.json output.json
-```
+API from official document: `GET /users/{id | userPrincipalName}/authentication/methods`
+
+Command: `get users authentication/methods users.json output.json`
+
 
 *output.json*
 
