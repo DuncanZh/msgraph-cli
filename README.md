@@ -1,13 +1,14 @@
 # Microsoft Graph API CLI
 
-`msgraph-cli` is a command-line interface (CLI) tool designed to interact with the Microsoft Graph API writen in Go. It provides an interactive shell, allowing users to authenticate, fetch users, and retrieve specified resources.
+`msgraph-cli` is a command-line interface (CLI) tool designed to interact with the Microsoft Graph API written in Go. It provides an interactive shell, allowing users to authenticate with secrets and retrieve specified resources.
 
 ## Features
 
 - Authenticate with Microsoft Graph API using credentials or a file
-- Fetch users from the Graph API
+- List specifies resources
 - Retrieve specified resources concurrently
-- Interactive shell for ease of use
+- Support expand argument to fetch additional resources
+- Provide Interactive shell for ease of use
 - Store results to JSON files for future use
 
 ## Usage
@@ -29,20 +30,24 @@ auth <credential_file>
 auth <client_id> <client_secret> <tenant_id>
 ```
 
-#### 2. `get users`
+#### 2. `list`
 
-Fetch all users and dump to `output_file`.
+List the specific resource and dump to `output_file`.
 
-```
-get users <output_file>
-```
-
-#### 3. `get resource`
-
-Fetch specified resources by user ids from `input_file` and dump to `output_file`. The input file must be a valid JSON array containing users with ids. Refer to the output of `get users`.
+This command accepts an optional argument `expand` that fetches one additional resource related to the original resource. Please refer to the official document for avaliable resources.
 
 ```
-get resource <type> <input_file> <output_file>
+list <resource> <output_file> [expand]
+```
+
+#### 3. `get`
+
+Get specified resources by user ids from `user_file` and dump to `output_file`. The input file must be a valid JSON array containing users with ids. Please refer to the output of `list users`.
+
+This command accepts an optional argument `expand` that fetches one additional resource related to the original resource. Please refer to the official document for available resources.
+
+```
+get <resource> <user_file> <output_file> [expand]
 ```
 
 ## Examples
@@ -79,15 +84,13 @@ get users users.json
 
 ```json
 [  
- {  
-  "additionalData": {},  
+ {
   "displayName": "User1",  
-  "id": "xxx",  
+  "id": "xxx"
   },
-  {  
-  "additionalData": {},  
+  {
   "displayName": "User2",  
-  "id": "yyy",  
+  "id": "yyy"
   }
 ]
 ```
@@ -103,22 +106,19 @@ get resource authenticate users.json output.json
 ```json
 {  
  "xxx": [  
-  {  
-   "additionalData": {},  
+  {
    "createdDateTime": "2020-10-28T20:47:31Z",  
    "id": "aaa",  
    "odataType": "#microsoft.graph.passwordAuthenticationMethod"  
   },
-  {  
-	"additionalData": {},  
+  {
 	"emailAddress": "foo@bar.com",  
 	"id": "bbb",  
 	"odataType": "#microsoft.graph.emailAuthenticationMethod"  
   }
  ],
  "yyy": [  
-  {  
-   "additionalData": {},  
+  {
    "createdDateTime": "2023-08-06T17:13:18Z",  
    "id": "ccc",  
    "odataType": "#microsoft.graph.passwordAuthenticationMethod"  
