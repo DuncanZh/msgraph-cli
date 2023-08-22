@@ -6,11 +6,8 @@ import (
 	"github.com/Joker-Jane/msgraph-cli/api"
 	"github.com/abiosoft/ishell/v2"
 	"github.com/abiosoft/readline"
-	"github.com/microsoftgraph/msgraph-sdk-go/groups"
-	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -19,9 +16,6 @@ func main() {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println(err)
-			println("Sending SIGINT to everyone. (just in case?)")
-			//syscall.Kill(syscall.Getpid()*(-1), syscall.SIGINT)
-			println("Done")
 		}
 	}()
 
@@ -33,6 +27,12 @@ func main() {
 
 	g := api.NewGraphAPI()
 	shell.Set("api", g)
+
+	list := []string{"users", "groups"}
+	get := []string{"authentication/methods"}
+
+	shell.Set("list", list)
+	shell.Set("get", get)
 
 	shell.AddCmd(&ishell.Cmd{
 		Name: "auth",
@@ -51,7 +51,7 @@ func main() {
 		Help: "Usage: list <resource> <output_file> [expand]",
 		CompleterWithPrefix: func(prefix string, args []string) []string {
 			if len(args) == 0 {
-				return []string{"users", "groups"}
+				return shell.Get("list").([]string)
 			} else if len(args) == 1 {
 				return getDirectory(prefix)
 			}
@@ -62,10 +62,10 @@ func main() {
 
 	shell.AddCmd(&ishell.Cmd{
 		Name: "get",
-		Help: "Usage: get <resource> <users_file> <output_file> [worker_count=4]",
+		Help: "Usage: get <resource> <users_file> <output_file> [expand]",
 		CompleterWithPrefix: func(prefix string, args []string) []string {
 			if len(args) == 0 {
-				return []string{"authentication/methods"}
+				return shell.Get("get").([]string)
 			} else if len(args) < 3 {
 				return getDirectory(prefix)
 			}
@@ -77,7 +77,7 @@ func main() {
 	if len(os.Args) > 1 {
 		err := shell.Process(os.Args[1:]...)
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Println("Error: " + err.Error())
 		}
 	} else {
 		shell.Println("Interactive Shell: Please use 'auth' command to authenticate the API")
@@ -131,7 +131,10 @@ func auth(c *ishell.Context) {
 func listResource(c *ishell.Context) {
 	start := time.Now()
 
-	if len(c.Args) != 2 && len(c.Args) != 3 {
+	var expand []string
+	if len(c.Args) == 3 {
+		expand = c.Args[2:3]
+	} else if len(c.Args) != 2 {
 		fmt.Println(c.Cmd.Help)
 		return
 	}
@@ -142,29 +145,7 @@ func listResource(c *ishell.Context) {
 		return
 	}
 
-	expand := c.Args[2:3]
-
-	var result []map[string]interface{}
-
-	switch c.Args[0] {
-	case "users":
-		cfg := &users.UsersRequestBuilderGetRequestConfiguration{
-			QueryParameters: &users.UsersRequestBuilderGetQueryParameters{
-				Expand: expand,
-			},
-		}
-		result = g.ListResource(c.Args[0], cfg, expand)
-	case "groups":
-		cfg := &groups.GroupsRequestBuilderGetRequestConfiguration{
-			QueryParameters: &groups.GroupsRequestBuilderGetQueryParameters{
-				Expand: expand,
-			},
-		}
-		result = g.ListResource(c.Args[0], cfg, expand)
-	default:
-		fmt.Println(c.Cmd.Help)
-		return
-	}
+	result := g.ListResource(c.Args[0], expand)
 
 	if dumpFile(result, c.Args[1], true) {
 		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(result), time.Since(start).Seconds())
@@ -174,19 +155,12 @@ func listResource(c *ishell.Context) {
 func getResource(c *ishell.Context) {
 	start := time.Now()
 
-	if len(c.Args) != 3 && len(c.Args) != 4 {
+	var expand []string
+	if len(c.Args) == 4 {
+		expand = c.Args[3:4]
+	} else if len(c.Args) != 3 {
 		fmt.Println(c.Cmd.Help)
 		return
-	}
-
-	workerCount := 4
-	if len(c.Args) == 4 {
-		i, err := strconv.ParseUint(c.Args[3], 10, 32)
-		if err != nil {
-			fmt.Println("Error: Invalid worker node count")
-			return
-		}
-		workerCount = int(i)
 	}
 
 	g := c.Get("api").(*api.GraphAPI)
@@ -200,16 +174,7 @@ func getResource(c *ishell.Context) {
 		return
 	}
 
-	var result map[string][]interface{}
-
-	switch c.Args[0] {
-	case "authentication/methods":
-		cfg := &users.ItemAuthenticationMethodsRequestBuilderGetRequestConfiguration{}
-		result = g.GetResourceByUserIdsConcurrent(c, userIds, c.Args[0], cfg, workerCount, 20)
-	default:
-		fmt.Println(c.Cmd.Help)
-		return
-	}
+	result := g.GetResourceByUserIdsConcurrent(c, userIds, c.Args[0], expand)
 
 	if dumpFile(result, c.Args[2], true) {
 		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(userIds), time.Since(start).Seconds())

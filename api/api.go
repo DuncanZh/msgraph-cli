@@ -61,31 +61,60 @@ func (g *GraphAPI) InitializeGraphForUserAuth(clientId string, clientSecret stri
 	return nil
 }
 
-func (g *GraphAPI) ListResource(resource string, configuration T, relatedResources []string) []map[string]interface{} {
+func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]interface{} {
+	// Separate resource path
 	resources := strings.Split(resource, "/")
 	for i := 0; i < len(resources); i++ {
 		resources[i] = strings.Title(resources[i])
 	}
 
+	// Get the corresponding method recursively
+	// Equivalent to g.userClient.Method1().Method2.Get(context.Background(), nil)
 	method := reflect.ValueOf(g.userClient)
 	for _, v := range resources {
 		method = method.MethodByName(v).Call([]reflect.Value{})[0]
 	}
-	resps := method.MethodByName("Get").Call([]reflect.Value{reflect.ValueOf(context.Background()), reflect.ValueOf(configuration)})
+	method = method.MethodByName("Get")
 
+	//Create config for expand, equivalent to
+	//cfg := &users.UsersRequestBuilderGetRequestConfiguration{
+	//	QueryParameters: &users.UsersRequestBuilderGetQueryParameters{
+	//		Expand: expand,
+	//	},
+	//}
+	cfgType := method.Type().In(1)
+	cfg := reflect.New(cfgType.Elem())
+	if len(expand) == 1 {
+		queryType := cfg.Elem().FieldByName("QueryParameters").Type()
+		query := reflect.New(queryType.Elem())
+		query.Elem().FieldByName("Expand").Set(reflect.ValueOf(expand))
+		cfg.Elem().FieldByName("QueryParameters").Set(query)
+	}
+
+	// Call the method with default context and the required type
+	// Get the type of the second argument and create a nil pointer
+	resps := method.Call([]reflect.Value{reflect.ValueOf(context.Background()), cfg})
+
+	// Check error, which is the second return value
 	if !resps[1].IsNil() {
 		g.printError(resps[1].Interface().(error))
 		return nil
 	}
+
+	// Convert the first return value to the base pagination collection type
 	resp := resps[0].Interface().(models.BaseCollectionPaginationCountResponseable)
 
+	// Iterate the base collection
 	var results []map[string]interface{}
 	pageIterator, err := msgraphcore.NewPageIterator[models.Entityable](resp, g.userClient.GetAdapter(), models.CreateEntityFromDiscriminatorValue)
 	err = pageIterator.Iterate(context.Background(), func(item models.Entityable) bool {
-		for _, v := range relatedResources {
+		// Handle the expand argument
+		for _, v := range expand {
 			retrieveRelatedResource(&item, v)
 		}
+		// Append result
 		results = append(results, item.GetBackingStore().Enumerate())
+		// Escape from the current iteration
 		return true
 	})
 	if err != nil {
@@ -95,9 +124,12 @@ func (g *GraphAPI) ListResource(resource string, configuration T, relatedResourc
 	return results
 }
 
-func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resource string, configuration T, n int, slice int) map[string][]interface{} {
+func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []string, resource string, expand []string) map[string][]interface{} {
 	result := make(map[string][]interface{})
 	lock := sync.Mutex{}
+
+	slice := 20
+	workers := 4
 
 	input := make(chan []string, len(userIds)/slice+1)
 	output := make(chan bool, len(userIds))
@@ -107,9 +139,23 @@ func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []s
 	for i := 0; i < len(resources); i++ {
 		resources[i] = strings.Title(resources[i])
 	}
+	resource = strings.Join(resources, "")
 
-	for i := 0; i < n; i++ {
-		go g.GetResourceByUserIdsWorker(resources, configuration, input, output, pause, &lock, &result)
+	method := reflect.ValueOf(g.userClient.Users().ByUserId(userIds[0]))
+	for _, v := range resources {
+		method = method.MethodByName(v).Call([]reflect.Value{})[0]
+	}
+	cfgType := method.MethodByName("ToGetRequestInformation").Type().In(1)
+	cfg := reflect.New(cfgType.Elem())
+	if len(expand) == 1 {
+		queryType := cfg.Elem().FieldByName("QueryParameters").Type()
+		query := reflect.New(queryType.Elem())
+		query.Elem().FieldByName("Expand").Set(reflect.ValueOf(expand))
+		cfg.Elem().FieldByName("QueryParameters").Set(query)
+	}
+
+	for i := 0; i < workers; i++ {
+		go g.GetResourceByUserIdsWorker(resources, cfg, input, output, pause, &lock, &result)
 	}
 
 	i := 0
@@ -143,7 +189,7 @@ func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []s
 	return result
 }
 
-func (g *GraphAPI) GetResourceByUserIdsWorker(resources []string, configuration T, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
+func (g *GraphAPI) GetResourceByUserIdsWorker(resources []string, configuration reflect.Value, input chan []string, output chan bool, pause chan int, lock *sync.Mutex, result *map[string][]interface{}) {
 retry:
 	for userIds := range input {
 		batch := msgraphcore.NewBatchRequest(g.userClient.GetAdapter())
@@ -158,7 +204,7 @@ retry:
 			for _, v := range resources {
 				method = method.MethodByName(v).Call([]reflect.Value{})[0]
 			}
-			request := method.MethodByName("ToGetRequestInformation").Call([]reflect.Value{reflect.ValueOf(context.Background()), reflect.ValueOf(configuration)})[0].Interface().(*abstractions.RequestInformation)
+			request := method.MethodByName("ToGetRequestInformation").Call([]reflect.Value{reflect.ValueOf(context.Background()), configuration})[0].Interface().(*abstractions.RequestInformation)
 
 			step, err := batch.AddBatchRequestStep(*request)
 			if err != nil {
