@@ -1,0 +1,70 @@
+[
+ {
+  "additionalData": {
+   "creationOptions": [
+    "ProvisionGroupHomepage",
+    "HubSiteId:00000000-0000-0000-0000-000000000000",
+    "SPSiteLanguage:1033"
+   ],
+   "resourceBehaviorOptions": [],
+   "resourceProvisioningOptions": [],
+   "serviceProvisioningErrors": []
+  },
+  "createdDateTime": "2020-11-04T12:28:03Z",
+  "description": "xxx",
+  "displayName": "xxx",
+  "groupTypes": [
+   "Unified"
+  ],
+  "id": "xxx",
+  "mail": "foo@bar.com",
+  "mailEnabled": true,
+  "mailNickname": "xxx",
+  "odataType": "#microsoft.graph.group",
+  "onPremisesProvisioningErrors": [],
+  "proxyAddresses": [
+   "SPO:xxx",
+   "SMTP:foo@bar.com",
+   "smtp:foo@bar.com"
+  ],
+  "renewedDateTime": "2020-11-04T12:28:03Z",
+  "securityEnabled": false,
+  "securityIdentifier": "xxx",
+  "visibility": "Public"
+ },
+ {
+  "additionalData": {
+   "creationOptions": [
+    "Team",
+    "ExchangeProvisioningFlags:3552"
+   ],
+   "resourceBehaviorOptions": [
+    "HideGroupInOutlook",
+    "SubscribeMembersToCalendarEventsDisabled",
+    "WelcomeEmailDisabled"
+   ],
+   "resourceProvisioningOptions": [
+    "Team"
+   ],
+   "serviceProvisioningErrors": []
+  },
+  "createdDateTime": "2020-10-22T15:07:23Z",
+  "displayName": "yyy",
+  "groupTypes": [
+   "Unified"
+  ],
+  "id": "yyy",
+  "mail": "foo@bar.com",
+  "mailEnabled": true,
+  "mailNickname": "yyy",
+  "odataType": "#microsoft.graph.group",
+  "onPremisesProvisioningErrors": [],
+  "proxyAddresses": [
+   "SMTP:foo@bar.com"
+  ],
+  "renewedDateTime": "2020-10-22T15:07:23Z",
+  "securityEnabled": false,
+  "securityIdentifier": "yyy",
+  "visibility": "Public"
+ }
+]

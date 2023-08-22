@@ -1,0 +1,30 @@
+[
+ {
+  "addIns": [],
+  "additionalData": {},
+  "api": {},
+  "appId": "xxx",
+  "appRoles": [],
+  "createdDateTime": "2020-12-31T13:40:50Z",
+  "displayName": "xxx",
+  "id": "xxx",
+  "identifierUris": [],
+  "info": {},
+  "keyCredentials": [],
+  "odataType": "#microsoft.graph.application",
+  "parentalControlSettings": {},
+  "passwordCredentials": [
+   {}
+  ],
+  "publicClient": {},
+  "publisherDomain": "xxx.com",
+  "requiredResourceAccess": [
+   {}
+  ],
+  "signInAudience": "AzureADMyOrg",
+  "spa": {},
+  "tags": [],
+  "verifiedPublisher": {},
+  "web": {}
+ }
+]

@@ -1,0 +1,25 @@
+{
+ "xxx": [
+  {
+   "additionalData": {},
+   "createdDateTime": "2020-10-28T20:47:31Z",
+   "id": "xxx",
+   "odataType": "#microsoft.graph.passwordAuthenticationMethod"
+  }
+ ],
+ "yyy": [
+  {
+   "additionalData": {},
+   "createdDateTime": "2020-10-28T13:49:56Z",
+   "id": "yyy",
+   "odataType": "#microsoft.graph.passwordAuthenticationMethod"
+  },
+  {
+   "additionalData": {
+    "emailAddress": "yyy@yyy.com"
+   },
+   "id": "yyy",
+   "odataType": "#microsoft.graph.emailAuthenticationMethod"
+  }
+ ]
+}

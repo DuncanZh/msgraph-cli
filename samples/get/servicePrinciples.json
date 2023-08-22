@@ -1,0 +1,36 @@
+[
+  {
+    "accountEnabled": true,
+    "addIns": [],
+    "additionalData": {
+      "createdDateTime": "2021-04-30T18:25:13Z"
+    },
+    "alternativeNames": [],
+    "appDisplayName": "xxx",
+    "appId": "xxx",
+    "appOwnerOrganizationId": "xxx",
+    "appRoleAssignmentRequired": false,
+    "appRoles": [
+      {}
+    ],
+    "displayName": "xxx",
+    "id": "xxx",
+    "info": {},
+    "keyCredentials": [],
+    "notificationEmailAddresses": [],
+    "oauth2PermissionScopes": [],
+    "odataType": "#microsoft.graph.servicePrincipal",
+    "passwordCredentials": [],
+    "replyUrls": [
+      "xxx"
+    ],
+    "resourceSpecificApplicationPermissions": [],
+    "servicePrincipalNames": [
+      "xxx"
+    ],
+    "servicePrincipalType": "Application",
+    "signInAudience": "AzureADMultipleOrgs",
+    "tags": [],
+    "verifiedPublisher": {}
+  }
+]

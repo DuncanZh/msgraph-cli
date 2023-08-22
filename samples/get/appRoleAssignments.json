@@ -1,0 +1,28 @@
+{
+ "6b9d738e-a2ae-4e10-8b11-87ef3a20e923": [
+  {
+   "additionalData": {
+    "appRoleId": "00000000-0000-0000-0000-000000000000",
+    "principalDisplayName": "xxx",
+    "principalId": "xxx",
+    "principalType": "User",
+    "resourceDisplayName": "Fluency",
+    "resourceId": "xxx"
+   },
+   "createdDateTime": "2020-10-22T20:25:43.9540194Z",
+   "id": "xxx"
+  },
+  {
+   "additionalData": {
+    "appRoleId": "00000000-0000-0000-0000-000000000000",
+    "principalDisplayName": "yyy",
+    "principalId": "yyy",
+    "principalType": "User",
+    "resourceDisplayName": "Fluency Cloud",
+    "resourceId": "yyy"
+   },
+   "createdDateTime": "2022-04-28T19:03:28.4495091Z",
+   "id": "yyy"
+  }
+ ]
+}

@@ -1,0 +1,150 @@
+[
+ {
+  "additionalData": {
+   "creationOptions": [
+    "ProvisionGroupHomepage",
+    "HubSiteId:00000000-0000-0000-0000-000000000000",
+    "SPSiteLanguage:1033"
+   ],
+   "resourceBehaviorOptions": [],
+   "resourceProvisioningOptions": [],
+   "serviceProvisioningErrors": []
+  },
+  "createdDateTime": "2020-11-04T12:28:03Z",
+  "description": "xxx",
+  "displayName": "xxx",
+  "groupTypes": [
+   "Unified"
+  ],
+  "id": "xxx",
+  "mail": "xxx@xxx.com",
+  "mailEnabled": true,
+  "mailNickname": "xxx",
+  "members": [
+   {
+    "accountEnabled": true,
+    "additionalData": {
+     "isLicenseReconciliationNeeded": false,
+     "refreshTokensValidFromDateTime": "2020-10-28T13:49:56Z",
+     "serviceProvisioningErrors": []
+    },
+    "assignedLicenses": [
+     {}
+    ],
+    "assignedPlans": [
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {}
+    ],
+    "authorizationInfo": {},
+    "businessPhones": [
+     "111"
+    ],
+    "city": "xxx",
+    "country": "xxx",
+    "createdDateTime": "2020-10-22T15:03:53Z",
+    "displayName": "xxx",
+    "givenName": "xxx",
+    "id": "xxx",
+    "identities": [
+     {}
+    ],
+    "imAddresses": [
+     "xxx@xxx.com"
+    ],
+    "mail": "xxx@xxx.com",
+    "mailNickname": "xxx",
+    "odataType": "#microsoft.graph.user",
+    "onPremisesExtensionAttributes": {},
+    "onPremisesProvisioningErrors": [],
+    "otherMails": [
+     "xxx@xxx.com"
+    ],
+    "postalCode": "xxx",
+    "preferredLanguage": "en-US",
+    "provisionedPlans": [
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {},
+     {}
+    ],
+    "proxyAddresses": [
+     "smtp:xxx@xxx.com",
+     "SMTP:xxx@xxx.com"
+    ],
+    "securityIdentifier": "xxx",
+    "signInSessionsValidFromDateTime": "2020-10-28T13:49:56Z",
+    "state": "xxx",
+    "streetAddress": "xxx",
+    "surname": "User",
+    "usageLocation": "US",
+    "userPrincipalName": "xxx@xxx.com",
+    "userType": "Member"
+   }
+  ],
+  "odataType": "#microsoft.graph.group",
+  "onPremisesProvisioningErrors": [],
+  "proxyAddresses": [
+   "SPO:xxx",
+   "SMTP:xxx@xxx.com",
+   "smtp:xxx@xxx.com"
+  ],
+  "renewedDateTime": "2020-11-04T12:28:03Z",
+  "securityEnabled": false,
+  "securityIdentifier": "xxx",
+  "visibility": "Public"
+ }
+]

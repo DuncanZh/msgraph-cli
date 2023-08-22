@@ -71,8 +71,14 @@ func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]i
 	// Get the corresponding method recursively
 	// Equivalent to g.userClient.Method1().Method2.Get(context.Background(), nil)
 	method := reflect.ValueOf(g.userClient)
+
 	for _, v := range resources {
-		method = method.MethodByName(v).Call([]reflect.Value{})[0]
+		method = method.MethodByName(v)
+		if !method.IsValid() {
+			fmt.Println("Error: Unknown resource " + v)
+			return nil
+		}
+		method = method.Call([]reflect.Value{})[0]
 	}
 	method = method.MethodByName("Get")
 
@@ -83,8 +89,9 @@ func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]i
 	//	},
 	//}
 	cfgType := method.Type().In(1)
-	cfg := reflect.New(cfgType.Elem())
+	cfg := reflect.Zero(cfgType)
 	if len(expand) == 1 {
+		cfg = reflect.New(cfgType.Elem())
 		queryType := cfg.Elem().FieldByName("QueryParameters").Type()
 		query := reflect.New(queryType.Elem())
 		query.Elem().FieldByName("Expand").Set(reflect.ValueOf(expand))
@@ -93,21 +100,18 @@ func (g *GraphAPI) ListResource(resource string, expand []string) []map[string]i
 
 	// Call the method with default context and the required type
 	// Get the type of the second argument and create a nil pointer
-	resps := method.Call([]reflect.Value{reflect.ValueOf(context.Background()), cfg})
+	resp := method.Call([]reflect.Value{reflect.ValueOf(context.Background()), cfg})
 
-	// Check error, which is the second return value
-	if !resps[1].IsNil() {
-		g.printError(resps[1].Interface().(error))
+	// Check error, the second return value
+	if v := resp[1].Interface(); v != nil {
+		g.printError(v.(error))
 		return nil
 	}
 
-	// Convert the first return value to the base pagination collection type
-	resp := resps[0].Interface().(models.BaseCollectionPaginationCountResponseable)
-
-	// Iterate the base collection
+	// Iterate the collection using the base type
 	var results []map[string]interface{}
-	pageIterator, err := msgraphcore.NewPageIterator[models.Entityable](resp, g.userClient.GetAdapter(), models.CreateEntityFromDiscriminatorValue)
-	err = pageIterator.Iterate(context.Background(), func(item models.Entityable) bool {
+	pageIterator, err := msgraphcore.NewPageIterator[models.DirectoryObjectable](resp[0].Interface(), g.userClient.GetAdapter(), models.CreateDirectoryObjectCollectionResponseFromDiscriminatorValue)
+	err = pageIterator.Iterate(context.Background(), func(item models.DirectoryObjectable) bool {
 		// Handle the expand argument
 		for _, v := range expand {
 			retrieveRelatedResource(&item, v)
@@ -143,7 +147,21 @@ func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []s
 
 	method := reflect.ValueOf(g.userClient.Users().ByUserId(userIds[0]))
 	for _, v := range resources {
-		method = method.MethodByName(v).Call([]reflect.Value{})[0]
+		if v == "Inbox" {
+			method = method.MethodByName("ByMailFolderId")
+			if !method.IsValid() {
+				fmt.Println("Error: Unknown resource " + v)
+				return nil
+			}
+			method = method.Call([]reflect.Value{reflect.ValueOf("inbox")})[0]
+		} else {
+			method = method.MethodByName(v)
+			if !method.IsValid() {
+				fmt.Println("Error: Unknown resource " + v)
+				return nil
+			}
+			method = method.Call([]reflect.Value{})[0]
+		}
 	}
 	cfgType := method.MethodByName("ToGetRequestInformation").Type().In(1)
 	cfg := reflect.New(cfgType.Elem())
@@ -172,6 +190,11 @@ func (g *GraphAPI) GetResourceByUserIdsConcurrent(c *ishell.Context, userIds []s
 
 		if len(pause) == 2 {
 			t = <-pause
+			if t == -1 {
+				c.ProgressBar().Stop()
+				fmt.Println("Error: Unexpected response")
+				return nil
+			}
 		}
 		if len(pause) == 1 {
 			c.ProgressBar().Suffix(fmt.Sprint(" ", len(output), "/", len(userIds), " (", percent, "%) PAUSED: Too many requests, please wait for ", t, " seconds..."))
@@ -202,14 +225,21 @@ retry:
 
 			method := reflect.ValueOf(g.userClient.Users().ByUserId(id))
 			for _, v := range resources {
-				method = method.MethodByName(v).Call([]reflect.Value{})[0]
+				if v == "Inbox" {
+					method = method.MethodByName("ByMailFolderId")
+					method = method.Call([]reflect.Value{reflect.ValueOf("inbox")})[0]
+				} else {
+					method = method.MethodByName(v)
+					method = method.Call([]reflect.Value{})[0]
+				}
 			}
 			request := method.MethodByName("ToGetRequestInformation").Call([]reflect.Value{reflect.ValueOf(context.Background()), configuration})[0].Interface().(*abstractions.RequestInformation)
 
 			step, err := batch.AddBatchRequestStep(*request)
 			if err != nil {
+				fmt.Println("\n" + err.Error())
 				input <- userIds
-				continue retry
+				return
 			}
 			stepMap[id] = step
 		}
@@ -220,22 +250,33 @@ retry:
 
 		resp, err := batch.Send(context.Background(), g.userClient.GetAdapter())
 		if err != nil {
+			fmt.Println("\n" + err.Error())
 			input <- userIds
-			continue retry
+			return
 		}
 
 		for k, v := range stepMap {
 			response, err := msgraphcore.GetBatchResponseById[models.BaseItemCollectionResponseable](resp, *v.GetId(), models.CreateBaseItemCollectionResponseFromDiscriminatorValue)
 			if err != nil {
-				if strings.Contains(err.Error(), "429") && len(pause) == 0 {
-					t, _ := strconv.ParseInt(resp.GetResponseById(*v.GetId()).GetHeaders()["Retry-After"], 10, 32)
-					pause <- int(t)
-					pause <- int(t)
-					time.Sleep(time.Duration(t) * time.Second)
-					<-pause
+				if strings.Contains(err.Error(), "429") {
+					if len(pause) == 0 {
+						t, _ := strconv.ParseInt(resp.GetResponseById(*v.GetId()).GetHeaders()["Retry-After"], 10, 32)
+						pause <- int(t)
+						pause <- int(t)
+						time.Sleep(time.Duration(t) * time.Second)
+						<-pause
+					}
+					input <- userIds
+					continue retry
+				} else if strings.Contains(err.Error(), "404") {
+					output <- true
+					continue
+				} else {
+					g.printError(err)
+					pause <- -1
+					pause <- -1
+					return
 				}
-				input <- userIds
-				continue retry
 			}
 
 			lock.Lock()
@@ -249,6 +290,35 @@ retry:
 	}
 }
 
+func (g *GraphAPI) Test() {
+	resp, err := g.userClient.Users().Get(context.Background(), nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	pageIterator, err := msgraphcore.NewPageIterator[models.DirectoryObjectable](resp, g.userClient.GetAdapter(), models.CreateDirectoryObjectCollectionResponseFromDiscriminatorValue)
+	err = pageIterator.Iterate(context.Background(), func(item models.DirectoryObjectable) bool {
+		return true
+	})
+	if err != nil {
+		g.printError(err)
+	}
+	/*
+		for _, v := range resp.GetValue() {
+			fmt.Printf("%v", v.GetBackingStore().Enumerate())
+		}
+	*/
+	/*
+		pageIterator, err := msgraphcore.NewPageIterator[models.Entityable](resp, g.userClient.GetAdapter(), models.CreateEntityFromDiscriminatorValue)
+		err = pageIterator.Iterate(context.Background(), func(item models.Entityable) bool {
+			return true
+		})
+		if err != nil {
+			g.printError(err)
+		}
+	*/
+}
+
 func (g *GraphAPI) IsInitiated() bool {
 	return g.userClient != nil
 }
@@ -258,30 +328,30 @@ func (g *GraphAPI) printError(err error) {
 	switch {
 	case errors.As(err, &ODataError):
 		errors.As(err, &ODataError)
-		fmt.Printf("error: %s\n", ODataError.Error())
+		fmt.Printf("\nError: %s\n", ODataError.Error())
 		if terr := ODataError.GetErrorEscaped(); terr != nil {
-			fmt.Printf("code: %s\n", *terr.GetCode())
-			fmt.Printf("msg: %s\n", *terr.GetMessage())
+			fmt.Printf("Code: %s\n", *terr.GetCode())
+			fmt.Printf("Message: %s\n", *terr.GetMessage())
 		}
+	default:
+		fmt.Println("\nError: " + err.Error())
 	}
 }
 
-func retrieveRelatedResource(item *models.Entityable, resource string) {
-	r := (*item).GetBackingStore().Enumerate()
-
+func retrieveRelatedResource(item *models.DirectoryObjectable, resource string) {
 	m, _ := (*item).GetBackingStore().Get(resource)
 
-	var a []models.Entityable
+	var a []models.DirectoryObjectable
 	arr := reflect.ValueOf(m)
 	for i := 0; i < arr.Len(); i++ {
-		a = append(a, arr.Index(i).Interface().(models.Entityable))
+		a = append(a, arr.Index(i).Interface().(models.DirectoryObjectable))
 	}
 
 	var result []map[string]interface{}
 	for _, v := range a {
 		result = append(result, v.GetBackingStore().Enumerate())
 	}
-	r["members"] = result
 
-	(*item).GetBackingStore().Set(resource, r)
+	m = result
+	(*item).GetBackingStore().Set(resource, m)
 }

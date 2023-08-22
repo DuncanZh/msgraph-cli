@@ -28,8 +28,8 @@ func main() {
 	g := api.NewGraphAPI()
 	shell.Set("api", g)
 
-	list := []string{"users", "groups"}
-	get := []string{"authentication/methods"}
+	list := []string{"users", "groups", "applications", "servicePrincipals"}
+	get := []string{"authentication/methods", "appRoleAssignments"}
 
 	shell.Set("list", list)
 	shell.Set("get", get)
@@ -72,6 +72,12 @@ func main() {
 			return []string{}
 		},
 		Func: getResource,
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "test",
+		Help: "Usage: Develop use only",
+		Func: test,
 	})
 
 	if len(os.Args) > 1 {
@@ -179,6 +185,16 @@ func getResource(c *ishell.Context) {
 	if dumpFile(result, c.Args[2], true) {
 		fmt.Printf("Success: Processed %v entries in %.2f seconds\n", len(userIds), time.Since(start).Seconds())
 	}
+}
+
+func test(c *ishell.Context) {
+	g := c.Get("api").(*api.GraphAPI)
+	if !g.IsInitiated() {
+		fmt.Println("Error: Use 'auth' command to authenticate the API before use")
+		return
+	}
+
+	g.Test()
 }
 
 func getDirectory(prefix string) []string {

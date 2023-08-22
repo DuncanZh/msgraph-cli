@@ -1,0 +1,26 @@
+[
+ {
+  "additionalData": {},
+  "businessPhones": [
+   "111"
+  ],
+  "displayName": "xxx",
+  "givenName": "xxx",
+  "id": "xxx",
+  "mail": "xxx@xxx.com",
+  "odataType": "#microsoft.graph.user",
+  "preferredLanguage": "en-US",
+  "surname": "User",
+  "userPrincipalName": "xxx@xxx.com"
+ },
+ {
+  "additionalData": {},
+  "businessPhones": [],
+  "displayName": "yyy",
+  "givenName": "yyy",
+  "id": "yyy",
+  "odataType": "#microsoft.graph.user",
+  "surname": "yyy",
+  "userPrincipalName": "yyy@yyy.com"
+ }
+]
